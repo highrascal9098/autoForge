@@ -1,0 +1,10 @@
+database/
+__pycache__/
+.pytest_cache/
+scraper/debug/
+.env
+scraper/storage_state.json
+*.pyc
+*.pyo
+*.pyd
+.DS_Store

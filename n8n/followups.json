@@ -1,0 +1,137 @@
+{
+  "name": "Followups via API Bridge",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [{ "field": "days", "daysInterval": 1 }]
+        }
+      },
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1,
+      "position": [250, 300]
+    },
+    {
+      "parameters": {
+        "url": "http://localhost:5001/api/followups/due",
+        "method": "GET",
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-API-KEY",
+              "value": "={{ $env.AUTOFORGE_API_KEY }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "name": "Get Due Followups API",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [450, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "return $input.all().flatMap(item => {\n  const rows = item.json;\n  if (!Array.isArray(rows)) return [];\n  return rows.map(row => ({\n    json: {\n      outreach_id: row.id,\n      recipient: row.recruiter_email,\n      subject: \"Following up: \" + row.title + \" at \" + row.company,\n      body: \"Hi,\\n\\nJust bumping this up in case it got buried. I remain very interested in the \" + row.title + \" role at \" + row.company + \".\\n\\nBest regards\",\n      followup_count: row.followup_count + 1\n    }\n  }));\n});"
+      },
+      "name": "Prepare Followup Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 1,
+      "position": [650, 300]
+    },
+    {
+      "parameters": {
+        "authentication": "oAuth2",
+        "sendTo": "={{ $json.recipient }}",
+        "subject": "={{ $json.subject }}",
+        "emailFormat": "text",
+        "text": "={{ $json.body }}"
+      },
+      "name": "Send Followup Gmail",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2,
+      "position": [850, 300],
+      "credentials": {
+        "gmailOAuth2Api": {
+          "id": "gmail_oauth",
+          "name": "Gmail OAuth Account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "http://localhost:5001/api/followups/record-sent",
+        "method": "POST",
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-API-KEY",
+              "value": "={{ $env.AUTOFORGE_API_KEY }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "outreach_id",
+              "value": "={{ $json.outreach_id }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "name": "Record Followup Sent",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1050, 300]
+    }
+  ],
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Get Due Followups API",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Due Followups API": {
+      "main": [
+        [
+          {
+            "node": "Prepare Followup Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Followup Data": {
+      "main": [
+        [
+          {
+            "node": "Send Followup Gmail",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Followup Gmail": {
+      "main": [
+        [
+          {
+            "node": "Record Followup Sent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  }
+}

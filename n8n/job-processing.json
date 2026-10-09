@@ -1,0 +1,77 @@
+{
+  "name": "Job Processing & AI Qualification",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [{ "field": "hours", "hoursInterval": 2 }]
+        }
+      },
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1,
+      "position": [250, 300]
+    },
+    {
+      "parameters": {
+        "url": "http://localhost:5001/api/jobs/new",
+        "method": "GET",
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-API-KEY",
+              "value": "={{ $env.AUTOFORGE_API_KEY }}"
+            }
+          ]
+        },
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "limit",
+              "value": 10
+            }
+          ]
+        },
+        "options": {}
+      },
+      "name": "Get New Jobs",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [450, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const keywords = ['QA', 'SDET', 'Automation', 'Playwright', 'Cypress', 'Selenium', 'TypeScript', 'JavaScript', 'Python', 'Test'];\nreturn $input.all().flatMap(item =&gt; {\n  const jobs = item.json || [];\n  return jobs.filter(job =&gt; {\n    const text = (job.title + ' ' + job.description).toLowerCase();\n    return keywords.some(kw =&gt; text.includes(kw.toLowerCase()));\n  }).map(j =&gt; ({ json: j }));\n});"
+      },
+      "name": "Deterministic Filtering",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 1,
+      "position": [650, 300]
+    }
+  ],
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Get New Jobs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get New Jobs": {
+      "main": [
+        [
+          {
+            "node": "Deterministic Filtering",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  }
+}

@@ -1,0 +1,129 @@
+{
+  "name": "Reply Monitor",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [{ "field": "minutes", "minutesInterval": 30 }]
+        }
+      },
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1,
+      "position": [250, 300]
+    },
+    {
+      "parameters": {
+        "authentication": "oAuth2",
+        "operation": "getUnread",
+        "returnAll": true
+      },
+      "name": "Gmail Inbox Monitor",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2,
+      "position": [450, 300],
+      "credentials": {
+        "gmailOAuth2Api": {
+          "id": "gmail_oauth",
+          "name": "Gmail OAuth Account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "http://localhost:5001/api/outreach/active",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-API-KEY",
+              "value": "={{ $env.AUTOFORGE_API_KEY || 'your_secret_key' }}"
+            }
+          ]
+        }
+      },
+      "name": "Get Active Outreach API",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [650, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const unreadEmails = $('Gmail Inbox Monitor').all();\nreturn unreadEmails.map(item => {\n  const body = (item.json.text || item.json.snippet || '').toLowerCase();\n  let classification = 'reply';\n  let sentiment = 'neutral';\n  if (body.includes('bounce') || body.includes('delivery failure') || body.includes('recipient not found')) {\n    classification = 'bounce';\n    sentiment = 'negative';\n  } else if (body.includes('unsubscribe') || body.includes('remove me') || body.includes('opt out')) {\n    classification = 'opt_out';\n    sentiment = 'negative';\n  } else if (body.includes('out of office') || body.includes('automatic reply') || body.includes('pto')) {\n    classification = 'ooo';\n    sentiment = 'neutral';\n  } else if (body.includes('interview') || body.includes('schedule') || body.includes('call')) {\n    sentiment = 'positive';\n  }\n  return {\n    json: {\n      sender_email: item.json.from,\n      reply_text: item.json.text || item.json.snippet,\n      sentiment: sentiment,\n      classification: classification,\n      threadId: item.json.threadId\n    }\n  };\n});"
+      },
+      "name": "Match and Classify Reply",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 1,
+      "position": [850, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://localhost:5001/api/replies/record",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-API-KEY",
+              "value": "={{ $env.AUTOFORGE_API_KEY || 'your_secret_key' }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"sender_email\": \"{{ $json.sender_email }}\",\n  \"reply_text\": \"{{ $json.reply_text }}\",\n  \"sentiment\": \"{{ $json.sentiment }}\",\n  \"classification\": \"{{ $json.classification }}\"\n}"
+      },
+      "name": "Record Reply API",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [1050, 300]
+    }
+  ],
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Gmail Inbox Monitor",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gmail Inbox Monitor": {
+      "main": [
+        [
+          {
+            "node": "Get Active Outreach API",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Active Outreach API": {
+      "main": [
+        [
+          {
+            "node": "Match and Classify Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Match and Classify Reply": {
+      "main": [
+        [
+          {
+            "node": "Record Reply API",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  }
+}

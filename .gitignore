@@ -1,0 +1,36 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.venv/
+env/
+venv/
+ENV/
+build/
+dist/
+*.egg-info/
+.pytest_cache/
+.coverage
+
+# Environment variables
+.env
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# Scraper session data & cookies
+scraper/cookies.json
+scraper/browser_profile/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+profile/
+
+# Generated scraper data
+scraper/debug/
+*.log

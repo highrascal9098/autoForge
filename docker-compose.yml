@@ -1,0 +1,21 @@
+services:
+  autoforge:
+    build: .
+    container_name: autoforge-app
+    restart: unless-stopped
+    ports:
+      - "${DASHBOARD_PORT:-5000}:5000"
+    environment:
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - GEMINI_API_KEY_2=${GEMINI_API_KEY_2}
+      - GMAIL_USER=${GMAIL_USER}
+      - GMAIL_APP_PASSWORD=${GMAIL_APP_PASSWORD}
+      - DRY_RUN=${DRY_RUN:-true}
+      - DASHBOARD_PORT=${DASHBOARD_PORT:-5000}
+      - DB_PATH=/app/database/jobs.db
+      - LINKEDIN_STORAGE_STATE=/app/scraper/storage_state.json
+    volumes:
+      - ./database:/app/database
+      - ./profile:/app/profile
+      - ./scraper/storage_state.json:/app/scraper/storage_state.json
+    command: python dashboard.py

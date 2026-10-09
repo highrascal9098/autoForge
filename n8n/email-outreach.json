@@ -1,0 +1,165 @@
+{
+  "name": "Email Outreach with Safety Gate & Idempotency",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [{ "field": "hours", "hoursInterval": 4 }]
+        }
+      },
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1,
+      "position": [250, 300]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "http://localhost:5001/api/outreach/approved",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-API-KEY",
+              "value": "={{ $env.AUTOFORGE_API_KEY || 'your_secret_key' }}"
+            }
+          ]
+        }
+      },
+      "name": "Get Approved Outreach API",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [450, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const dryRun = process.env.DRY_RUN !== 'false';\nconst items = $input.all();\nreturn items.flatMap(item => {\n  const data = Array.isArray(item.json) ? item.json : [item.json];\n  return data.map(d => {\n    const email = d.recruiter_email || '';\n    const validEmail = email && email.includes('@') && !email.includes('example.com') && !email.includes('test.com');\n    return {\n      json: {\n        ...d,\n        dry_run: dryRun,\n        safety_passed: validEmail,\n        should_send: validEmail && !dryRun\n      }\n    };\n  });\n});"
+      },
+      "name": "Deterministic Safety Gate & DRY_RUN Check",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 1,
+      "position": [650, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ $json.should_send }}",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "name": "If Should Send",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [850, 300]
+    },
+    {
+      "parameters": {
+        "authentication": "oAuth2",
+        "sendTo": "={{ $json.recruiter_email }}",
+        "subject": "={{ $json.email_subject }}",
+        "emailFormat": "text",
+        "text": "={{ $json.email_body }}"
+      },
+      "name": "Send Gmail (OAuth)",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2,
+      "position": [1050, 200],
+      "credentials": {
+        "gmailOAuth2Api": {
+          "id": "gmail_oauth",
+          "name": "Gmail OAuth Account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://localhost:5001/api/outreach/record-sent",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-API-KEY",
+              "value": "={{ $env.AUTOFORGE_API_KEY || 'your_secret_key' }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"outreach_id\": {{ $json.id }},\n  \"provider_message_id\": \"{{ $json.messageId || 'dry_run_or_sent_id' }}\",\n  \"idempotency_key\": \"outreach_{{ $json.id }}\"\n}"
+      },
+      "name": "Record Sent API",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [1250, 300]
+    }
+  ],
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Get Approved Outreach API",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Approved Outreach API": {
+      "main": [
+        [
+          {
+            "node": "Deterministic Safety Gate & DRY_RUN Check",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Deterministic Safety Gate & DRY_RUN Check": {
+      "main": [
+        [
+          {
+            "node": "If Should Send",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If Should Send": {
+      "main": [
+        [
+          {
+            "node": "Send Gmail (OAuth)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Record Sent API",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Gmail (OAuth)": {
+      "main": [
+        [
+          {
+            "node": "Record Sent API",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  }
+}
