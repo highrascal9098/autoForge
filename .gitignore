@@ -1,3 +1,11 @@
+# Environment variables
+.env
+.env.backup*
+
+# Credentials & storage state
+seed/credentials.json
+data/linkedin/storage_state.json
+
 # Python
 __pycache__/
 *.py[cod]
@@ -13,9 +21,6 @@ dist/
 .pytest_cache/
 .coverage
 
-# Environment variables
-.env
-
 # Database
 *.db
 *.sqlite
@@ -28,8 +33,6 @@ scraper/browser_profile/
 # OS files
 .DS_Store
 Thumbs.db
-
-profile/
 
 # Generated scraper data
 scraper/debug/

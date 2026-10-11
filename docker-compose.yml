@@ -1,4 +1,5 @@
 services:
+<<<<<<< HEAD
   autoforge:
     build: .
     container_name: autoforge-app
@@ -19,3 +20,55 @@ services:
       - ./profile:/app/profile
       - ./scraper/storage_state.json:/app/scraper/storage_state.json
     command: python dashboard.py
+=======
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: autoforge
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: autoforge
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./db/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U autoforge"]
+      interval: 5s
+      retries: 10
+
+  scraper:
+    build: { context: ., dockerfile: Dockerfile.scraper }
+    restart: unless-stopped
+    shm_size: 1gb
+    environment:
+      GEMINI_API_KEYS: ${GEMINI_API_KEYS}
+      AI_MODEL: ${AI_MODEL}
+      LINKEDIN_STORAGE_STATE: /data/storage_state.json
+    volumes:
+      - ./data/linkedin:/data
+      - ./profile:/app/profile:ro
+
+  n8n:
+    image: n8nio/n8n:2.35.7
+    restart: unless-stopped
+    depends_on: { postgres: { condition: service_healthy }, scraper: { condition: service_started } }
+    ports: ["127.0.0.1:5678:5678"]   # reach it via SSH tunnel / reverse proxy on a server
+    environment:
+      GENERIC_TIMEZONE: ${TZ}
+      TZ: ${TZ}
+      N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY}
+      N8N_BLOCK_ENV_ACCESS_IN_NODE: "false"
+      SCRAPER_URL: http://scraper:8000
+      GEMINI_API_KEYS: ${GEMINI_API_KEYS}
+      AI_MODEL: ${AI_MODEL}
+      GMAIL_USER: ${GMAIL_USER}
+      DRY_RUN: ${DRY_RUN}
+      DAILY_OUTREACH_LIMIT: ${DAILY_OUTREACH_LIMIT}
+    volumes:
+      - n8n_data:/home/node/.n8n
+      - ./seed:/seed:ro
+
+volumes:
+  pgdata:
+  n8n_data:
+>>>>>>> origin/n8n

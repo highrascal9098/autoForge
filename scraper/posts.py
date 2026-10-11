@@ -2,6 +2,10 @@ import os
 import json
 import logging
 import re
+<<<<<<< HEAD
+=======
+import hashlib
+>>>>>>> origin/n8n
 from urllib.parse import urljoin
 from playwright.sync_api import sync_playwright
 from dotenv import load_dotenv
@@ -12,6 +16,15 @@ dotenv_path = os.path.join(project_root, ".env")
 load_dotenv(dotenv_path)
 
 logger = logging.getLogger(__name__)
+<<<<<<< HEAD
+=======
+
+
+class SessionExpired(Exception):
+    pass
+
+
+>>>>>>> origin/n8n
 LINKEDIN_BASE = "https://www.linkedin.com"
 
 def absolute_url(url):
@@ -29,7 +42,11 @@ class LinkedInPostScraper:
         self.headless = headless
         self.storage_state_path = os.getenv("LINKEDIN_STORAGE_STATE", os.path.join(project_root, "scraper", "storage_state.json"))
 
+<<<<<<< HEAD
     def search_posts(self, keywords: str, max_posts: int = 20) -> list:
+=======
+    def search_posts(self, keywords: str, max_posts: int = 20, known_ids=()) -> list:
+>>>>>>> origin/n8n
         posts = []
         encoded_keywords = keywords.replace(" ", "%20")
         url = f"https://www.linkedin.com/search/results/content/?keywords={encoded_keywords}&origin=GLOBAL_SEARCH_HEADER&datePosted=%5B%22past-24h%22%5D"
@@ -54,8 +71,12 @@ class LinkedInPostScraper:
                 page.wait_for_timeout(6000)
 
                 if "login" in page.url or "authwall" in page.url:
+<<<<<<< HEAD
                     logger.warning("LinkedIn session expired or unauthenticated.")
                     return posts
+=======
+                    raise SessionExpired("LinkedIn session expired or unauthenticated.")
+>>>>>>> origin/n8n
 
                 logger.info("Scrolling to load feed posts...")
                 for _ in range(4):
@@ -118,7 +139,13 @@ class LinkedInPostScraper:
                         except Exception:
                             pass
 
+<<<<<<< HEAD
                         post_id = f"post_{idx}_{hash(text) & 0xffffffff}"
+=======
+                        post_id = "post_" + hashlib.sha1(text[:400].encode()).hexdigest()[:16]
+                        if post_id in known_ids:
+                            continue
+>>>>>>> origin/n8n
 
                         # Capture post URL / identifier deterministically from DOM attributes & links
                         post_url = None
