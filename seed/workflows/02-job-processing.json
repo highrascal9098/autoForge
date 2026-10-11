@@ -1,0 +1,244 @@
+{
+  "id": "afProcessing01",
+  "name": "AutoForge 2 - Job processing (Gemini scoring)",
+  "active": true,
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "30 */6 * * *"
+            }
+          ]
+        }
+      },
+      "id": "e5708e7e-0137-574d-91ec-ad856225bfb4",
+      "name": "Schedule",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "a3bd6448-4ed7-58d6-af65-846bf3f26a22",
+      "name": "Manual run",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        160
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.SCRAPER_URL }}/profile",
+        "options": {}
+      },
+      "id": "c114de1b-2d3f-5d6e-ace2-4b5de834159f",
+      "name": "Get profile",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        240,
+        80
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT id, title, company, location, work_mode, experience_requirement, skills, description, full_text FROM jobs WHERE status = 'discovered' ORDER BY scraped_at LIMIT 25",
+        "options": {}
+      },
+      "id": "2db849ed-24b3-5129-b8d0-a9cb4af11fd2",
+      "name": "Pending jobs",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        480,
+        80
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "afPostgres",
+          "name": "AutoForge Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const keys = $env.GEMINI_API_KEYS.split(',').map(s => s.trim()).filter(Boolean);\nconst key = keys[Math.floor(Math.random() * keys.length)];\nconst p = $('Get profile').first().json;\nconst j = $json;\nconst prompt = `Score how well this job post fits the candidate, 0-100.\nCandidate: ${p.title}, ${p.years_of_experience} years. Skills: ${p.skills.join(', ')}. Target roles: ${p.preferences.target_roles.join(', ')}. Location: open to remote/global/relocation.\nJob: ${j.title} at ${j.company}. Location: ${j.location} (${j.work_mode}). Experience required: ${j.experience_requirement}. Skills: ${JSON.stringify(j.skills)}.\nPost text: ${(j.description || j.full_text || '').slice(0, 2500)}\nPenalise roles that are not test/QA automation, and experience requirements far above the candidate's.\nReturn JSON only: {\"score\": <int>, \"reasons\": \"<max 2 sentences>\"}`;\nreturn { json: { id: j.id, key, body: { contents: [{ parts: [{ text: prompt }] }], generationConfig: { responseMimeType: 'application/json', temperature: 0.3 } } } };",
+        "mode": "runOnceForEachItem"
+      },
+      "id": "4ed8283b-f3ff-5c21-8dc8-5c23ca089e55",
+      "name": "Build prompt",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        720,
+        80
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://generativelanguage.googleapis.com/v1beta/models/{{ $env.AI_MODEL }}:generateContent",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-goog-api-key",
+              "value": "={{ $json.key }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.body) }}",
+        "options": {
+          "batching": {
+            "batch": {
+              "batchSize": 1,
+              "batchInterval": 4000
+            }
+          }
+        }
+      },
+      "id": "6fd6849f-7a9c-5269-a78d-3116f0629a5e",
+      "name": "Gemini score",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        960,
+        80
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    },
+    {
+      "parameters": {
+        "jsCode": "const raw = $json.candidates?.[0]?.content?.parts?.[0]?.text || '{}';\nlet r; try { r = JSON.parse(raw.replace(/^```json|```$/g, '').trim()); } catch (e) { r = null; }\nconst id = $('Build prompt').item.json.id;\nconst score = r && Number.isFinite(+r.score) ? Math.round(+r.score) : 0;\nconst status = !r ? 'review' : score >= 70 ? 'qualified' : score >= 40 ? 'review' : 'skipped';\nreturn { json: { params: [id, status, score, r ? String(r.reasons || '') : 'parse_error'] } };",
+        "mode": "runOnceForEachItem"
+      },
+      "id": "e033e28b-63c4-59e3-b2ca-2e4766c49fe7",
+      "name": "Parse score",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1200,
+        80
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE jobs SET status = $2, match_score = $3, match_reasons = $4 WHERE id = $1",
+        "options": {
+          "queryReplacement": "={{ $json.params }}"
+        }
+      },
+      "id": "81dca149-ac60-594b-b94e-32d8ccda5e80",
+      "name": "Update job",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        1440,
+        80
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "afPostgres",
+          "name": "AutoForge Postgres"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Schedule": {
+      "main": [
+        [
+          {
+            "node": "Get profile",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Manual run": {
+      "main": [
+        [
+          {
+            "node": "Get profile",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get profile": {
+      "main": [
+        [
+          {
+            "node": "Pending jobs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pending jobs": {
+      "main": [
+        [
+          {
+            "node": "Build prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build prompt": {
+      "main": [
+        [
+          {
+            "node": "Gemini score",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gemini score": {
+      "main": [
+        [
+          {
+            "node": "Parse score",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse score": {
+      "main": [
+        [
+          {
+            "node": "Update job",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "afErrorNotify1"
+  }
+}

@@ -1,0 +1,264 @@
+{
+  "id": "afDiscovery001",
+  "name": "AutoForge 1 - Job discovery",
+  "active": true,
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 */6 * * *"
+            }
+          ]
+        }
+      },
+      "id": "b3b31035-2fb3-5353-abfe-05850a83d64f",
+      "name": "Schedule",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "d59de087-c18c-5b2b-be4a-72030444878e",
+      "name": "Manual run",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        160
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.SCRAPER_URL }}/profile",
+        "options": {}
+      },
+      "id": "ce12bed9-2842-5a7f-ac5f-a21680c831fd",
+      "name": "Get profile",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        240,
+        80
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT coalesce(array_agg(external_id), '{}') AS ids FROM jobs WHERE scraped_at > now() - interval '60 days'",
+        "options": {}
+      },
+      "id": "eb4efb97-1acd-59cf-8433-ce74867399ba",
+      "name": "Known IDs",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        480,
+        80
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "afPostgres",
+          "name": "AutoForge Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const profile = $('Get profile').first().json;\nconst known = $('Known IDs').first().json.ids || [];\nreturn (profile.search_queries || []).map(q => ({ json: { query: q, max_posts: 15, known_ids: known } }));"
+      },
+      "id": "ba1fe0b8-c816-5201-b92e-c10e795367fe",
+      "name": "Build queries",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        720,
+        80
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SCRAPER_URL }}/scrape",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ query: $json.query, max_posts: $json.max_posts, known_ids: $json.known_ids }) }}",
+        "options": {
+          "timeout": 900000
+        }
+      },
+      "id": "de189232-87d5-5eb7-b7b7-ffb2794fd286",
+      "name": "Scrape LinkedIn",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        960,
+        80
+      ],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 60000
+    },
+    {
+      "parameters": {
+        "jsCode": "const rx = /^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$/;\nconst out = [];\nfor (const item of $input.all()) {\n  for (const j of item.json.jobs || []) {\n    const email = [j.recruiter_email, ...(j.contact_details || [])].map(e => (e || '').trim().toLowerCase()).find(e => rx.test(e)) || null;\n    out.push({ json: { params: [\n      j.source_post_id, j.post_url, j.application_url, j.job_title, j.company, j.location, j.work_mode, j.employment_type,\n      j.experience_requirement, j.salary, j.notice_period, j.description, j.full_text,\n      JSON.stringify(j.requirements || []), JSON.stringify(j.skills || []), JSON.stringify(j.contact_details || []),\n      j.author_name, j.recruiter_name, j.recruiter_profile_url, email, j.posted_at, j.search_keywords,\n      j.is_hiring_post ? 'discovered' : 'not_hiring' ] } });\n  }\n}\nreturn out;"
+      },
+      "id": "4ee8930d-63f9-53f9-a82f-44cb3432afe4",
+      "name": "Flatten jobs",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1200,
+        80
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO jobs (external_id, post_url, application_url, title, company, location, work_mode, employment_type,\n  experience_requirement, salary, notice_period, description, full_text, requirements, skills, contact_details,\n  author_name, recruiter_name, recruiter_profile_url, recruiter_email, posted_at, search_keywords, status)\nVALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14::jsonb,$15::jsonb,$16::jsonb,$17,$18,$19,$20,$21,$22,$23)\nON CONFLICT (external_id) DO NOTHING",
+        "options": {
+          "queryReplacement": "={{ $json.params }}"
+        }
+      },
+      "id": "13343b8f-9706-5e67-a8b4-359a7806796a",
+      "name": "Save jobs",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        1440,
+        80
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "afPostgres",
+          "name": "AutoForge Postgres"
+        }
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO system_health (task_name, status, details) VALUES ('job-discovery', 'success', $1) ON CONFLICT (task_name) DO UPDATE SET last_run_at = now(), status = 'success', details = $1",
+        "options": {
+          "queryReplacement": "={{ [ $('Flatten jobs').all().length + ' posts scanned' ] }}"
+        }
+      },
+      "id": "0c781fc7-8302-57e3-bff8-eca73c75ebfe",
+      "name": "Record health",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        1680,
+        80
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "afPostgres",
+          "name": "AutoForge Postgres"
+        }
+      },
+      "executeOnce": true
+    }
+  ],
+  "connections": {
+    "Schedule": {
+      "main": [
+        [
+          {
+            "node": "Get profile",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Manual run": {
+      "main": [
+        [
+          {
+            "node": "Get profile",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get profile": {
+      "main": [
+        [
+          {
+            "node": "Known IDs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Known IDs": {
+      "main": [
+        [
+          {
+            "node": "Build queries",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build queries": {
+      "main": [
+        [
+          {
+            "node": "Scrape LinkedIn",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Scrape LinkedIn": {
+      "main": [
+        [
+          {
+            "node": "Flatten jobs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Flatten jobs": {
+      "main": [
+        [
+          {
+            "node": "Save jobs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save jobs": {
+      "main": [
+        [
+          {
+            "node": "Record health",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "afErrorNotify1"
+  }
+}

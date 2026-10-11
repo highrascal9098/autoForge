@@ -1,0 +1,58 @@
+{
+  "id": "afErrorNotify1",
+  "name": "AutoForge - Error alert",
+  "active": true,
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "7550079c-6f60-51e9-ba69-086545c675eb",
+      "name": "Error Trigger",
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "fromEmail": "={{ $env.GMAIL_USER }}",
+        "toEmail": "={{ $env.GMAIL_USER }}",
+        "subject": "=AutoForge error: {{ $json.workflow.name }}",
+        "emailFormat": "text",
+        "text": "=Node: {{ $json.execution.lastNodeExecuted }}\nError: {{ $json.execution.error.message }}\n{{ $json.execution.url }}",
+        "options": {}
+      },
+      "id": "31009fa1-a69b-50e7-b0f6-9db359a890a8",
+      "name": "Email me",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        260,
+        0
+      ],
+      "credentials": {
+        "smtp": {
+          "id": "afSmtp",
+          "name": "AutoForge Gmail SMTP"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Error Trigger": {
+      "main": [
+        [
+          {
+            "node": "Email me",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

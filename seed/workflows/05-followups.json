@@ -1,0 +1,378 @@
+{
+  "id": "afFollowups001",
+  "name": "AutoForge 5 - Follow-ups (2-day cadence, max 2)",
+  "active": true,
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 11 * * 1-5"
+            }
+          ]
+        }
+      },
+      "id": "1fa8d30a-db77-53fc-83ff-e2711ca19f5c",
+      "name": "Schedule",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "9dd35f4c-e850-58af-a596-41e3d42d333a",
+      "name": "Manual run",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        160
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "=SELECT o.id, o.recruiter_email, o.email_subject, o.email_body, o.followup_count, j.title, j.company\nFROM outreach o JOIN jobs j ON j.id = o.job_id\nWHERE o.status = 'sent' AND o.followup_count < 2 AND o.last_contacted_at < now() - interval '2 days'\n  AND NOT EXISTS (SELECT 1 FROM replies r WHERE r.outreach_id = o.id)\nORDER BY o.last_contacted_at LIMIT {{ Number($env.DAILY_OUTREACH_LIMIT) || 25 }}",
+        "options": {}
+      },
+      "id": "b8ce465d-0dcc-5393-b1b8-99a80185f409",
+      "name": "Due follow-ups",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        240,
+        80
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "afPostgres",
+          "name": "AutoForge Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "dry",
+              "leftValue": "={{ String($env.DRY_RUN).toLowerCase() }}",
+              "rightValue": "true",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "22dad745-637c-5645-ad27-74fdc265064b",
+      "name": "Dry run?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        480,
+        80
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "f121a2f6-536d-55d6-a3ca-72f233ac4b3f",
+      "name": "Dry run - nothing sent",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        720,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "batchSize": 1,
+        "options": {}
+      },
+      "id": "4a49c822-b37a-5612-ba2b-2cc1a7a4b7b3",
+      "name": "Loop",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        720,
+        160
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const keys = $env.GEMINI_API_KEYS.split(',').map(s => s.trim()).filter(Boolean);\nconst key = keys[Math.floor(Math.random() * keys.length)];\nconst j = $json;\nconst prompt = `Write follow-up #${j.followup_count + 1} (of max 2), under 60 words, plain text, polite, no pressure, to a recruiter who has not replied to this email about the ${j.title} role at ${j.company}.\nOriginal email:\n${j.email_body}\nReturn JSON only: {\"body\": \"...\"}`;\nreturn { json: { ...j, key, body: { contents: [{ parts: [{ text: prompt }] }], generationConfig: { responseMimeType: 'application/json', temperature: 0.3 } } } };",
+        "mode": "runOnceForEachItem"
+      },
+      "id": "0846d699-e9aa-5f32-ba1c-6e80abfbf274",
+      "name": "Build follow-up prompt",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        960,
+        160
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://generativelanguage.googleapis.com/v1beta/models/{{ $env.AI_MODEL }}:generateContent",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-goog-api-key",
+              "value": "={{ $json.key }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.body) }}",
+        "options": {
+          "batching": {
+            "batch": {
+              "batchSize": 1,
+              "batchInterval": 4000
+            }
+          }
+        }
+      },
+      "id": "eeda7600-177e-5482-bf6f-c23be1c20329",
+      "name": "Gemini follow-up",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1200,
+        160
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    },
+    {
+      "parameters": {
+        "jsCode": "const raw = $json.candidates?.[0]?.content?.parts?.[0]?.text || '{}';\nlet r; try { r = JSON.parse(raw.replace(/^```json|```$/g, '').trim()); } catch (e) { r = null; }\nconst src = $('Build follow-up prompt').item.json;\nconst text = r?.body || `Hi,\\n\\nJust following up on my earlier note about the ${src.title} role. Happy to share more details if useful.\\n\\nBest regards`;\nreturn { json: { id: src.id, to: src.recruiter_email, subject: src.email_subject.startsWith('Re:') ? src.email_subject : 'Re: ' + src.email_subject, text } };",
+        "mode": "runOnceForEachItem"
+      },
+      "id": "d96b4bb0-db2f-5f92-bdb6-1a927e3ed289",
+      "name": "Parse follow-up",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1440,
+        160
+      ]
+    },
+    {
+      "parameters": {
+        "fromEmail": "={{ $env.GMAIL_USER }}",
+        "toEmail": "={{ $json.to }}",
+        "subject": "={{ $json.subject }}",
+        "emailFormat": "text",
+        "text": "={{ $json.text }}",
+        "options": {}
+      },
+      "id": "5d2e7edf-0693-5849-8c89-a33d6bd0fa8e",
+      "name": "Send follow-up",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        1680,
+        160
+      ],
+      "credentials": {
+        "smtp": {
+          "id": "afSmtp",
+          "name": "AutoForge Gmail SMTP"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE outreach SET followup_count = followup_count + 1, last_contacted_at = now() WHERE id = $1",
+        "options": {
+          "queryReplacement": "={{ [ $('Parse follow-up').item.json.id ] }}"
+        }
+      },
+      "id": "7023d229-c171-5e07-bf3b-a6d707d0ebf9",
+      "name": "Count follow-up",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        1920,
+        160
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "afPostgres",
+          "name": "AutoForge Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "amount": "={{ 30 + Math.floor(Math.random() * 60) }}",
+        "unit": "seconds"
+      },
+      "id": "3ec77f13-65b4-530e-96bf-7ee6b3c3502e",
+      "name": "Wait 30-90s",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        2160,
+        160
+      ],
+      "webhookId": "262951a8-1476-5f61-ac28-9fe44053eea1"
+    }
+  ],
+  "connections": {
+    "Schedule": {
+      "main": [
+        [
+          {
+            "node": "Due follow-ups",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Manual run": {
+      "main": [
+        [
+          {
+            "node": "Due follow-ups",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Due follow-ups": {
+      "main": [
+        [
+          {
+            "node": "Dry run?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Dry run?": {
+      "main": [
+        [
+          {
+            "node": "Dry run - nothing sent",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Loop",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop": {
+      "main": [
+        [],
+        [
+          {
+            "node": "Build follow-up prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build follow-up prompt": {
+      "main": [
+        [
+          {
+            "node": "Gemini follow-up",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gemini follow-up": {
+      "main": [
+        [
+          {
+            "node": "Parse follow-up",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse follow-up": {
+      "main": [
+        [
+          {
+            "node": "Send follow-up",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send follow-up": {
+      "main": [
+        [
+          {
+            "node": "Count follow-up",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Count follow-up": {
+      "main": [
+        [
+          {
+            "node": "Wait 30-90s",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait 30-90s": {
+      "main": [
+        [
+          {
+            "node": "Loop",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "afErrorNotify1"
+  }
+}
