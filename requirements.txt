@@ -2,6 +2,9 @@ playwright==1.42.0
 google-genai==2.29.0
 flask==3.0.3
 python-dotenv==1.0.1
+<<<<<<< HEAD
 pytest==8.1.1
 requests==2.31.0
 pydantic==2.6.4
+=======
+>>>>>>> origin/n8n

@@ -1,0 +1,302 @@
+{
+  "id": "afReplies00001",
+  "name": "AutoForge 4 - Reply monitor",
+  "active": true,
+  "nodes": [
+    {
+      "parameters": {
+        "mailbox": "INBOX",
+        "postProcessAction": "nothing",
+        "options": {}
+      },
+      "id": "9ef90cf7-f966-51a3-9b68-f8e4fcbcc40c",
+      "name": "New email",
+      "type": "n8n-nodes-base.emailReadImap",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "credentials": {
+        "imap": {
+          "id": "afImap",
+          "name": "AutoForge Gmail IMAP"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const f = $json.from;\nconst raw = typeof f === 'string' ? f : (f?.value?.[0]?.address || f?.text || '');\nconst m = String(raw).match(/[\\w.+-]+@[\\w-]+(\\.[\\w-]+)+/);\nconst email = m ? m[0].toLowerCase() : '';\nconst text = String($json.text || $json.textPlain || '').split(/\\n\\s*On .{5,120} wrote:/)[0].slice(0, 2000);\nif (!email || email === ($env.GMAIL_USER || '').toLowerCase() || /mailer-daemon|postmaster|no-?reply/.test(email)) return [];\nreturn [{ json: { email, text, subject: $json.subject || '' } }];"
+      },
+      "id": "6e663468-0aa8-519b-8e81-ad61b55fc7da",
+      "name": "Parse sender",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT id FROM outreach WHERE lower(recruiter_email) = $1 AND status IN ('sent', 'replied') ORDER BY sent_at DESC LIMIT 1",
+        "options": {
+          "queryReplacement": "={{ [ $json.email ] }}"
+        }
+      },
+      "id": "b9035493-8532-5b7b-8389-7de39aa71f3e",
+      "name": "Find outreach",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        480,
+        0
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "afPostgres",
+          "name": "AutoForge Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const keys = $env.GEMINI_API_KEYS.split(',').map(s => s.trim()).filter(Boolean);\nconst key = keys[Math.floor(Math.random() * keys.length)];\nconst m = $('Parse sender').item.json;\nconst prompt = `Classify this reply to a job-outreach email. Sentiment must be one of: positive, neutral, negative, unsubscribe, interview_request, screening_request.\nSubject: ${m.subject}\nReply: ${m.text}\nReturn JSON only: {\"sentiment\": \"...\"}`;\nreturn { json: { outreach_id: $json.id, key, body: { contents: [{ parts: [{ text: prompt }] }], generationConfig: { responseMimeType: 'application/json', temperature: 0.3 } } } };",
+        "mode": "runOnceForEachItem"
+      },
+      "id": "2c60e287-78e5-5a6a-8b96-8a57ec80db8c",
+      "name": "Build classify prompt",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        720,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://generativelanguage.googleapis.com/v1beta/models/{{ $env.AI_MODEL }}:generateContent",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-goog-api-key",
+              "value": "={{ $json.key }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.body) }}",
+        "options": {
+          "batching": {
+            "batch": {
+              "batchSize": 1,
+              "batchInterval": 2000
+            }
+          }
+        }
+      },
+      "id": "46d8e70d-4fcf-54dc-ab37-70c83eeb5973",
+      "name": "Gemini classify",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        960,
+        0
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    },
+    {
+      "parameters": {
+        "jsCode": "const raw = $json.candidates?.[0]?.content?.parts?.[0]?.text || '{}';\nlet r; try { r = JSON.parse(raw.replace(/^```json|```$/g, '').trim()); } catch (e) { r = null; }\nconst ok = ['positive','neutral','negative','unsubscribe','interview_request','screening_request'];\nconst m = $('Parse sender').item.json;\nconst sentiment = ok.includes(r?.sentiment) ? r.sentiment : 'neutral';\nreturn { json: { sentiment, email: m.email, params: [$('Build classify prompt').item.json.outreach_id, m.email, m.text, sentiment] } };",
+        "mode": "runOnceForEachItem"
+      },
+      "id": "11ae3308-7493-560a-a75d-10b3630ea5d4",
+      "name": "Parse sentiment",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1200,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH r AS (INSERT INTO replies (outreach_id, sender_email, reply_text, sentiment) VALUES ($1, $2, $3, $4) RETURNING outreach_id)\nUPDATE outreach SET status = 'replied' WHERE id = (SELECT outreach_id FROM r)",
+        "options": {
+          "queryReplacement": "={{ $('Parse sentiment').item.json.params }}"
+        }
+      },
+      "id": "44ec4bf0-7cf1-53f2-8f26-06513bfa02dc",
+      "name": "Save reply",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        1440,
+        0
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "afPostgres",
+          "name": "AutoForge Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "s",
+              "leftValue": "={{ $('Parse sentiment').item.json.sentiment }}",
+              "rightValue": "^(positive|interview_request|screening_request)$",
+              "operator": {
+                "type": "string",
+                "operation": "regex"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "1bf21232-f11d-578f-8c00-2c0965c69ec4",
+      "name": "Worth a look?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1680,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "fromEmail": "={{ $env.GMAIL_USER }}",
+        "toEmail": "={{ $env.GMAIL_USER }}",
+        "subject": "=AutoForge: {{ $('Parse sentiment').item.json.sentiment }} from {{ $('Parse sentiment').item.json.email }}",
+        "emailFormat": "text",
+        "text": "={{ $('Parse sender').item.json.text }}",
+        "options": {}
+      },
+      "id": "dc36b7c9-f88f-5213-a0c1-eabd4464cff2",
+      "name": "Notify me",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        1920,
+        -80
+      ],
+      "credentials": {
+        "smtp": {
+          "id": "afSmtp",
+          "name": "AutoForge Gmail SMTP"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "New email": {
+      "main": [
+        [
+          {
+            "node": "Parse sender",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse sender": {
+      "main": [
+        [
+          {
+            "node": "Find outreach",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Find outreach": {
+      "main": [
+        [
+          {
+            "node": "Build classify prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build classify prompt": {
+      "main": [
+        [
+          {
+            "node": "Gemini classify",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gemini classify": {
+      "main": [
+        [
+          {
+            "node": "Parse sentiment",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse sentiment": {
+      "main": [
+        [
+          {
+            "node": "Save reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save reply": {
+      "main": [
+        [
+          {
+            "node": "Worth a look?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Worth a look?": {
+      "main": [
+        [
+          {
+            "node": "Notify me",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "afErrorNotify1"
+  }
+}
