@@ -58,11 +58,12 @@
           "id": "afPostgres",
           "name": "AutoForge Postgres"
         }
-      }
+      },
+      "alwaysOutputData": true
     },
     {
       "parameters": {
-        "jsCode": "const keys = $env.GEMINI_API_KEYS.split(',').map(s => s.trim()).filter(Boolean);\nconst key = keys[Math.floor(Math.random() * keys.length)];\nconst m = $('Parse sender').item.json;\nconst prompt = `Classify this reply to a job-outreach email. Sentiment must be one of: positive, neutral, negative, unsubscribe, interview_request, screening_request.\nSubject: ${m.subject}\nReply: ${m.text}\nReturn JSON only: {\"sentiment\": \"...\"}`;\nreturn { json: { outreach_id: $json.id, key, body: { contents: [{ parts: [{ text: prompt }] }], generationConfig: { responseMimeType: 'application/json', temperature: 0.3 } } } };",
+        "jsCode": "if (!$json.id) return [];\nconst keys = $env.GEMINI_API_KEYS.split(',').map(s => s.trim()).filter(Boolean);\nconst key = keys[Math.floor(Math.random() * keys.length)];\nconst m = $('Parse sender').item.json;\nconst prompt = `Classify this reply to a job-outreach email. Sentiment must be one of: positive, neutral, negative, unsubscribe, interview_request, screening_request.\nSubject: ${m.subject}\nReply: ${m.text}\nReturn JSON only: {\"sentiment\": \"...\"}`;\nreturn { json: { outreach_id: $json.id, key, body: { contents: [{ parts: [{ text: prompt }] }], generationConfig: { responseMimeType: 'application/json', temperature: 0.3 } } } };",
         "mode": "runOnceForEachItem"
       },
       "id": "2c60e287-78e5-5a6a-8b96-8a57ec80db8c",
