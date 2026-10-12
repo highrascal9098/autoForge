@@ -30,7 +30,7 @@ services:
     image: n8nio/n8n:2.35.7
     restart: unless-stopped
     depends_on: { postgres: { condition: service_healthy }, scraper: { condition: service_started } }
-    ports: ["127.0.0.1:5678:5678"]   # reach it via SSH tunnel / reverse proxy on a server
+    ports: ["127.0.0.1:5678:5678"]
     environment:
       GENERIC_TIMEZONE: ${TZ}
       TZ: ${TZ}
