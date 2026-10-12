@@ -27,7 +27,7 @@ services:
       - ./profile:/app/profile:ro
 
   n8n:
-    image: n8nio/n8n:2.35.7
+    image: n8nio/n8n:latest
     restart: unless-stopped
     depends_on: { postgres: { condition: service_healthy }, scraper: { condition: service_started } }
     ports: ["127.0.0.1:5678:5678"]   # reach it via SSH tunnel / reverse proxy on a server
