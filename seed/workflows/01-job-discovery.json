@@ -36,13 +36,12 @@
     },
     {
       "parameters": {
-        "url": "={{ $env.SCRAPER_URL }}/profile",
-        "options": {}
+        "jsCode": "return [{ json: { search_queries: [\"Playwright\", \"SDET\", \"Automation Test Engineer\", \"QA Automation\"] } }];"
       },
       "id": "ce12bed9-2842-5a7f-ac5f-a21680c831fd",
       "name": "Get profile",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.2,
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
       "position": [
         240,
         80
@@ -71,7 +70,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const profile = $('Get profile').first().json;\nconst known = $('Known IDs').first().json.ids || [];\nreturn (profile.search_queries || []).map(q => ({ json: { query: q, max_posts: 15, known_ids: known } }));"
+        "jsCode": "const queries = $('Get profile').first().json.search_queries || ['Playwright'];\nreturn queries.map(q => ({ json: { query: q } }));"
       },
       "id": "ba1fe0b8-c816-5201-b92e-c10e795367fe",
       "name": "Build queries",
@@ -84,13 +83,9 @@
     },
     {
       "parameters": {
-        "method": "POST",
-        "url": "={{ $env.SCRAPER_URL }}/scrape",
-        "sendBody": true,
-        "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ query: $json.query, max_posts: $json.max_posts, known_ids: $json.known_ids }) }}",
+        "url": "=https://remotive.com/api/remote-jobs?search={{ encodeURIComponent($json.query) }}",
         "options": {
-          "timeout": 900000
+          "timeout": 30000
         }
       },
       "id": "de189232-87d5-5eb7-b7b7-ffb2794fd286",
@@ -103,11 +98,11 @@
       ],
       "retryOnFail": true,
       "maxTries": 2,
-      "waitBetweenTries": 60000
+      "waitBetweenTries": 10000
     },
     {
       "parameters": {
-        "jsCode": "const rx = /^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$/;\nconst out = [];\nfor (const item of $input.all()) {\n  for (const j of item.json.jobs || []) {\n    const email = [j.recruiter_email, ...(j.contact_details || [])].map(e => (e || '').trim().toLowerCase()).find(e => rx.test(e)) || null;\n    out.push({ json: { params: [\n      j.source_post_id, j.post_url, j.application_url, j.job_title, j.company, j.location, j.work_mode, j.employment_type,\n      j.experience_requirement, j.salary, j.notice_period, j.description, j.full_text,\n      JSON.stringify(j.requirements || []), JSON.stringify(j.skills || []), JSON.stringify(j.contact_details || []),\n      j.author_name, j.recruiter_name, j.recruiter_profile_url, email, j.posted_at, j.search_keywords,\n      j.is_hiring_post ? 'discovered' : 'not_hiring' ] } });\n  }\n}\nreturn out;"
+        "jsCode": "const knownIds = new Set($('Known IDs').first().json.ids || []);\nconst out = [];\nfor (const item of $input.all()) {\n  const jobs = item.json.jobs || [];\n  for (const j of jobs) {\n    const extId = 'remotive_' + j.id;\n    if (knownIds.has(extId)) continue;\n    out.push({ json: { params: [\n      extId,\n      j.url,\n      j.url,\n      j.title,\n      j.company_name,\n      j.candidate_required_location || 'Remote',\n      'remote',\n      j.job_type || 'full_time',\n      'Not specified',\n      j.salary || 'Not specified',\n      'Not specified',\n      j.description || '',\n      j.description || '',\n      JSON.stringify([]),\n      JSON.stringify(j.tags || []),\n      JSON.stringify([]),\n      j.company_name,\n      null,\n      null,\n      null,\n      j.publication_date,\n      item.json.query || 'Remotive',\n      'discovered'\n    ] } });\n  }\n}\nreturn out;"
       },
       "id": "4ee8930d-63f9-53f9-a82f-44cb3432afe4",
       "name": "Flatten jobs",
@@ -147,7 +142,7 @@
         "operation": "executeQuery",
         "query": "INSERT INTO system_health (task_name, status, details) VALUES ('job-discovery', 'success', $1) ON CONFLICT (task_name) DO UPDATE SET last_run_at = now(), status = 'success', details = $1",
         "options": {
-          "queryReplacement": "={{ [ $('Flatten jobs').all().length + ' posts scanned' ] }}"
+          "queryReplacement": "={{ [ $('Flatten jobs').all().length + ' jobs scanned' ] }}"
         }
       },
       "id": "0c781fc7-8302-57e3-bff8-eca73c75ebfe",
