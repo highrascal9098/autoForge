@@ -1,27 +1,17 @@
+# autoForge v2 — Oracle free tier (1GB RAM) + Neon Postgres
+# Local postgres REMOVED: Neon is the only database.
+# RAM note: 1GB is tight. scripts/setup-vm.sh creates a 4GB swapfile first.
 services:
-  postgres:
-    image: postgres:16-alpine
-    restart: unless-stopped
-    environment:
-      POSTGRES_USER: autoforge
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      POSTGRES_DB: autoforge
-    volumes:
-      - pgdata:/var/lib/postgresql/data
-      - ./db/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U autoforge"]
-      interval: 5s
-      retries: 10
-
   scraper:
     build: { context: ., dockerfile: Dockerfile.scraper }
     restart: unless-stopped
     shm_size: 1gb
+    mem_limit: "800m"
     environment:
       GEMINI_API_KEYS: ${GEMINI_API_KEYS}
       AI_MODEL: ${AI_MODEL}
       LINKEDIN_STORAGE_STATE: /data/storage_state.json
+      PROFILE_PATH: /app/profile/profile.json
     volumes:
       - ./data/linkedin:/data
       - ./profile:/app/profile:ro
@@ -29,13 +19,18 @@ services:
   n8n:
     image: n8nio/n8n:2.35.7
     restart: unless-stopped
-    depends_on: { postgres: { condition: service_healthy }, scraper: { condition: service_started } }
-    ports: ["127.0.0.1:5678:5678"]
+    depends_on: { scraper: { condition: service_started } }
+    ports: ["127.0.0.1:5678:5678"]   # SSH/VPN tunnel only. Never expose publicly.
+    mem_limit: "900m"
     environment:
       GENERIC_TIMEZONE: ${TZ}
       TZ: ${TZ}
       N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY}
       N8N_BLOCK_ENV_ACCESS_IN_NODE: "false"
+      N8N_DIAGNOSTICS_ENABLED: "false"
+      NODE_OPTIONS: "--max-old-space-size=640"
+      EXECUTIONS_DATA_PRUNE: "true"
+      EXECUTIONS_DATA_MAX_AGE: "168"   # keep execution history 7 days
       SCRAPER_URL: http://scraper:8000
       GEMINI_API_KEYS: ${GEMINI_API_KEYS}
       AI_MODEL: ${AI_MODEL}
@@ -47,5 +42,4 @@ services:
       - ./seed:/seed:ro
 
 volumes:
-  pgdata:
   n8n_data:
