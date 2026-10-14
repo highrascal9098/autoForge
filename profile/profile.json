@@ -18,6 +18,13 @@
     "REST API",
     "Kubernetes"
   ],
+  "ctc": {
+    "current": "",
+    "expected": "",
+    "currency": "INR",
+    "notice_period_days": "",
+    "_comment": "REQUIRED for requirement #7: fill current CTC, expected CTC, notice period. Emails answer recruiter asks from these fields."
+  },
   "contact": {
     "email": "dssriniketh@gmail.com",
     "phone": "+91-9908527200",
@@ -50,6 +57,8 @@
   "search_queries": [
     "Playwright Test Engineer Hiring",
     "SDET Playwright Hiring",
-    "Automation Test Engineer Playwright"
+    "Automation Test Engineer Playwright",
+    "AI QA Engineer Hiring",
+    "SDET Hiring Remote"
   ]
 }

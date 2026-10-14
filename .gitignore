@@ -1,3 +1,6 @@
+# secrets — NEVER commit these
 .env
-seed/credentials.json
 data/linkedin/storage_state.json
+seed/credentials.json
+__pycache__/
+*.pyc
